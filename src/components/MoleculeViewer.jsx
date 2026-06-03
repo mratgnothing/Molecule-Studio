@@ -6,7 +6,7 @@ import { getElementConfig, getScaledRadius } from '../utils/elementColors';
  * MoleculeViewer Component
  * 使用 Three.js 进行高保真 3D 分子可视化。
  */
-const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
+const MoleculeViewer = ({ moleculeData, displayOptions = {}, onAtomSelect, onAtomDeselect }) => {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
@@ -28,6 +28,10 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
       }
 
       if (child.material) {
+        if (child.material.map) {
+          child.material.map.dispose();
+        }
+
         if (Array.isArray(child.material)) {
           child.material.forEach((material) => material.dispose());
         } else {
@@ -58,6 +62,48 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
     if (renderer && scene && camera) {
       renderer.render(scene, camera);
     }
+  };
+
+  const createTextSprite = (text) => {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    const fontSize = 48;
+    const paddingX = 18;
+    const paddingY = 10;
+
+    context.font = `700 ${fontSize}px Arial`;
+    const metrics = context.measureText(text);
+    canvas.width = Math.ceil(metrics.width + paddingX * 2);
+    canvas.height = fontSize + paddingY * 2;
+
+    context.font = `700 ${fontSize}px Arial`;
+    context.textBaseline = 'middle';
+    context.fillStyle = 'rgba(255, 255, 255, 0.88)';
+    context.strokeStyle = 'rgba(30, 41, 59, 0.35)';
+    context.lineWidth = 3;
+    context.roundRect?.(2, 2, canvas.width - 4, canvas.height - 4, 10);
+    if (context.roundRect) {
+      context.fill();
+      context.stroke();
+    } else {
+      context.fillRect(2, 2, canvas.width - 4, canvas.height - 4);
+    }
+
+    context.fillStyle = '#111827';
+    context.fillText(text, paddingX, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    const scale = Math.max(1.2, canvas.width / 70);
+    sprite.scale.set(scale, 0.65, 1);
+    sprite.renderOrder = 10;
+    return sprite;
   };
 
   useEffect(() => {
@@ -238,7 +284,6 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
     try {
       const moleculeGroup = moleculeGroupRef.current;
       const atoms = moleculeData.atoms || [];
-      const atomMeshMap = new Map();
 
       atoms.forEach((atom) => {
         const config = getElementConfig(atom.element);
@@ -265,7 +310,16 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
 
         moleculeGroup.add(mesh);
         atomMeshesRef.current.push(mesh);
-        atomMeshMap.set(atom.id, mesh);
+
+        const labelParts = [];
+        if (displayOptions.showElementLabels) labelParts.push(atom.element);
+        if (displayOptions.showAtomIds) labelParts.push(`#${atom.id}`);
+
+        if (labelParts.length > 0) {
+          const label = createTextSprite(labelParts.join(' '));
+          label.position.set(atom.x || 0, (atom.y || 0) + radius + 0.35, atom.z || 0);
+          moleculeGroup.add(label);
+        }
       });
 
       const bonds = moleculeData.bonds || [];
@@ -320,7 +374,7 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
       console.error('Error rendering molecule:', error);
       setIsLoading(false);
     }
-  }, [moleculeData]);
+  }, [moleculeData, displayOptions.showElementLabels, displayOptions.showAtomIds]);
 
   return (
     <div className="relative w-full h-full bg-gray-100 rounded-lg overflow-hidden">
