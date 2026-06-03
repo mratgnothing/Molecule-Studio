@@ -34,15 +34,36 @@ function App() {
       .replace('An error occurred', '发生错误');
   };
 
-  const getBestSearchQuery = (parsedResult, fallbackQuery) => {
-    // Natural-language model outputs can hallucinate SMILES/formula values.
-    // PubChem name search is safer for AI-parsed queries, so use the English name first.
-    return (
-      parsedResult?.moleculeName ||
-      parsedResult?.smiles ||
-      parsedResult?.formula ||
-      fallbackQuery
-    );
+  const getSearchCandidates = (parsedResult, fallbackQuery) => {
+    const candidates = [
+      ...(parsedResult?.candidates || []),
+      parsedResult?.moleculeName,
+      parsedResult?.formula,
+      parsedResult?.smiles,
+      fallbackQuery,
+    ].filter(Boolean);
+
+    return [...new Set(candidates.map((item) => String(item).trim()).filter(Boolean))];
+  };
+
+  const searchWithCandidates = async (candidates) => {
+    let lastError = null;
+
+    for (const candidate of candidates) {
+      const result = await smartSearch(candidate);
+
+      if (result.success) {
+        return result;
+      }
+
+      lastError = result.error;
+      console.warn('Molecule search candidate failed:', candidate, result.error);
+    }
+
+    return {
+      success: false,
+      error: lastError || '获取分子数据失败',
+    };
   };
 
   const handleSearch = useCallback(async (query, inputMode = 'standard') => {
@@ -51,17 +72,17 @@ function App() {
     setSelectedAtom(null);
 
     try {
-      let searchQuery = query;
+      let candidates = [query];
 
       if (inputMode === 'nlp') {
         const parseResult = await parseNaturalLanguage(query);
         if (!parseResult.success) {
           throw new Error(parseResult.error || '自然语言查询解析失败');
         }
-        searchQuery = getBestSearchQuery(parseResult, query);
+        candidates = getSearchCandidates(parseResult, query);
       }
 
-      const result = await smartSearch(searchQuery);
+      const result = await searchWithCandidates(candidates);
 
       if (!result.success) {
         throw new Error(result.error || '获取分子数据失败');
@@ -77,11 +98,24 @@ function App() {
   }, []);
 
   const handleNLPParsed = useCallback((parsedResult) => {
-    const searchQuery = getBestSearchQuery(parsedResult, '');
-    if (searchQuery) {
-      handleSearch(searchQuery, 'standard');
+    const candidates = getSearchCandidates(parsedResult, '');
+    if (candidates.length > 0) {
+      searchWithCandidates(candidates)
+        .then((result) => {
+          if (result.success) {
+            setError(null);
+            setMoleculeData(result.data);
+          } else {
+            setError(toChineseError(result.error || '获取分子数据失败'));
+            setMoleculeData(null);
+          }
+        })
+        .catch((err) => {
+          setError(toChineseError(err.message));
+          setMoleculeData(null);
+        });
     }
-  }, [handleSearch]);
+  }, []);
 
   const handleAtomSelect = useCallback((atomData) => {
     setSelectedAtom(atomData);
@@ -171,7 +205,7 @@ function App() {
               <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
                 <li>先在“AI 配置”中填写自己的 API Key，并选择模型</li>
                 <li>用自然语言描述分子，例如“显示水分子”</li>
-                <li>AI 会优先使用英文分子名搜索，避免错误 SMILES 导致查询失败</li>
+                <li>系统会按候选名称、分子式和结构标识逐个尝试，避免单个错误结果导致失败</li>
                 <li>配置只保存在当前浏览器，不会提交到代码仓库</li>
               </ul>
             </div>
