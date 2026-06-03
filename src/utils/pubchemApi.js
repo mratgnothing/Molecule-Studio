@@ -1,64 +1,239 @@
 /**
  * PubChem API Integration
- * Fetches molecular structure data from PubChem REST API
- * Supports: chemical names, molecular formulas, and SMILES strings
+ * Fetches molecular structure data from PubChem PUG REST API.
+ * Supports chemical names, molecular formulas, SMILES strings, and a few common Chinese names.
  */
 
 import axios from 'axios';
 
 const PUBCHEM_BASE = import.meta.env.VITE_PUBCHEM_API_BASE || 'https://pubchem.ncbi.nlm.nih.gov/rest/pug';
 
+const pubchemClient = axios.create({
+  baseURL: PUBCHEM_BASE.replace(/\/$/, ''),
+  timeout: 15000,
+  headers: {
+    Accept: 'application/json',
+  },
+});
+
+const ATOMIC_NUMBER_TO_SYMBOL = {
+  1: 'H',
+  2: 'He',
+  3: 'Li',
+  4: 'Be',
+  5: 'B',
+  6: 'C',
+  7: 'N',
+  8: 'O',
+  9: 'F',
+  10: 'Ne',
+  11: 'Na',
+  12: 'Mg',
+  13: 'Al',
+  14: 'Si',
+  15: 'P',
+  16: 'S',
+  17: 'Cl',
+  18: 'Ar',
+  19: 'K',
+  20: 'Ca',
+  26: 'Fe',
+  29: 'Cu',
+  30: 'Zn',
+  35: 'Br',
+  53: 'I',
+};
+
+const COMMON_CHINESE_NAMES = {
+  水: 'water',
+  水分子: 'water',
+  乙醇: 'ethanol',
+  酒精: 'ethanol',
+  甲醇: 'methanol',
+  咖啡因: 'caffeine',
+  阿司匹林: 'aspirin',
+  阿莫西林: 'amoxicillin',
+  葡萄糖: 'glucose',
+  苯: 'benzene',
+  甲烷: 'methane',
+  乙酸: 'acetic acid',
+  醋酸: 'acetic acid',
+};
+
+const normalizeQuery = (query) => {
+  const trimmed = String(query || '').trim();
+  return COMMON_CHINESE_NAMES[trimmed] || trimmed;
+};
+
+const getAxiosErrorDetail = (error) => {
+  const status = error.response?.status;
+  const pubchemMessage =
+    error.response?.data?.Fault?.Details?.[0] ||
+    error.response?.data?.Fault?.Message ||
+    error.response?.data?.message;
+
+  if (status && pubchemMessage) {
+    return `HTTP ${status}: ${pubchemMessage}`;
+  }
+  if (status) {
+    return `HTTP ${status}`;
+  }
+  return error.message;
+};
+
+const extractFirstCID = (data) => {
+  return data?.IdentifierList?.CID?.[0] || data?.PC_Compounds?.[0]?.id?.id?.cid || null;
+};
+
 /**
- * Search for compound by name, formula, or SMILES
+ * Search for compound by name, formula, or SMILES and return a PubChem-like object with CID.
  * @param {string} query - Chemical name, formula, or SMILES string
  * @param {string} searchType - 'name', 'formula', or 'smiles'
  * @returns {Promise<Object>} Compound data with CID
  */
 export const searchCompound = async (query, searchType = 'name') => {
-  try {
-    const url = `${PUBCHEM_BASE}/compound/${searchType}/${encodeURIComponent(query)}/JSON`;
-    const response = await axios.get(url, {
-      timeout: 10000,
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+  const normalizedQuery = normalizeQuery(query);
 
-    if (response.data?.PC_Compounds?.length > 0) {
-      return response.data.PC_Compounds[0];
-    }
-    throw new Error(`No compound found for: ${query}`);
-  } catch (error) {
-    throw new Error(`Failed to search compound: ${error.message}`);
+  if (!normalizedQuery) {
+    throw new Error('Failed to search compound: empty query');
   }
+
+  const encodedQuery = encodeURIComponent(normalizedQuery);
+  const candidatePaths = [];
+
+  if (searchType === 'smiles') {
+    candidatePaths.push(`/compound/smiles/${encodedQuery}/cids/JSON`);
+  } else if (searchType === 'formula') {
+    // fastformula returns CIDs more reliably than requesting a full compound record directly.
+    candidatePaths.push(`/compound/fastformula/${encodedQuery}/cids/JSON`);
+    candidatePaths.push(`/compound/name/${encodedQuery}/cids/JSON`);
+  } else {
+    candidatePaths.push(`/compound/name/${encodedQuery}/cids/JSON`);
+  }
+
+  let lastError = null;
+
+  for (const path of candidatePaths) {
+    try {
+      const response = await pubchemClient.get(path);
+      const cid = extractFirstCID(response.data);
+
+      if (cid) {
+        return {
+          id: {
+            id: {
+              cid,
+            },
+          },
+        };
+      }
+
+      lastError = new Error(`No compound found for: ${normalizedQuery}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const detail = lastError?.response ? getAxiosErrorDetail(lastError) : lastError?.message;
+  throw new Error(`Failed to search compound: ${detail || normalizedQuery}`);
 };
 
 /**
- * Get compound 3D structure data
+ * Get compound structure data. Prefer a 3D record and fall back to a 2D record if PubChem has no 3D conformer.
  * @param {number|string} cid - Compound ID
- * @returns {Promise<Object>} 3D structure data with atoms and bonds
+ * @returns {Promise<Object>} structure data with atoms, bonds, and PubChem coords/conformers
  */
 export const getCompound3DStructure = async (cid) => {
-  try {
-    const url = `${PUBCHEM_BASE}/compound/cid/${cid}/JSON?properties=IsomericSMILES,MolecularFormula,MolecularWeight`;
-    const response = await axios.get(url, {
-      timeout: 10000,
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+  const candidatePaths = [
+    `/compound/cid/${cid}/record/JSON?record_type=3d`,
+    `/compound/cid/${cid}/record/JSON?record_type=2d`,
+    `/compound/cid/${cid}/JSON`,
+  ];
 
-    if (response.data?.PC_Compounds?.length > 0) {
-      return response.data.PC_Compounds[0];
+  let lastError = null;
+
+  for (const path of candidatePaths) {
+    try {
+      const response = await pubchemClient.get(path);
+      const compound = response.data?.PC_Compounds?.[0];
+      if (compound) {
+        return compound;
+      }
+      lastError = new Error(`No structure found for CID: ${cid}`);
+    } catch (error) {
+      lastError = error;
     }
-    throw new Error(`Failed to fetch 3D structure for CID: ${cid}`);
-  } catch (error) {
-    throw new Error(`Failed to get 3D structure: ${error.message}`);
   }
+
+  const detail = lastError?.response ? getAxiosErrorDetail(lastError) : lastError?.message;
+  throw new Error(`Failed to get 3D structure: ${detail || cid}`);
+};
+
+const toElementSymbol = (elementValue) => {
+  if (typeof elementValue === 'number') {
+    return ATOMIC_NUMBER_TO_SYMBOL[elementValue] || String(elementValue);
+  }
+  return elementValue || 'C';
+};
+
+const getCoordinateMap = (compoundData) => {
+  const coordBlock = compoundData.coords?.[0];
+  const conformer = coordBlock?.conformers?.[0];
+  const coordAids = coordBlock?.aid || compoundData.atoms?.aid || [];
+  const coordMap = new Map();
+
+  if (!conformer || !coordAids.length) {
+    return coordMap;
+  }
+
+  coordAids.forEach((aid, index) => {
+    coordMap.set(aid, {
+      x: Number(conformer.x?.[index] ?? 0),
+      y: Number(conformer.y?.[index] ?? 0),
+      z: Number(conformer.z?.[index] ?? 0),
+    });
+  });
+
+  return coordMap;
+};
+
+const extractMetadata = (compoundData) => {
+  const props = compoundData.props || [];
+  let molecularFormula = '';
+  let molecularWeight = 0;
+  let smiles = '';
+  let iupacName = '';
+
+  for (const prop of props) {
+    const label = prop.urn?.label || '';
+    const name = prop.urn?.name || '';
+    const value = prop.value?.sval ?? prop.value?.fval ?? '';
+
+    if (label === 'Molecular Formula') {
+      molecularFormula = String(value);
+    }
+    if (label === 'Molecular Weight') {
+      molecularWeight = Number(value) || 0;
+    }
+    if (label === 'SMILES' && !smiles) {
+      smiles = String(value);
+    }
+    if (label === 'IUPAC Name' && (name === 'Preferred' || !iupacName)) {
+      iupacName = String(value);
+    }
+  }
+
+  return {
+    molecularFormula,
+    molecularWeight,
+    smiles,
+    iupacName,
+  };
 };
 
 /**
- * Parse compound data to extract atoms and bonds
+ * Parse compound data to extract atoms and bonds.
+ * PubChem stores coordinates under compoundData.coords[*].conformers[*], not under compoundData.atoms.
  * @param {Object} compoundData - Raw compound data from PubChem
  * @returns {Object} Parsed structure with atoms, bonds, and metadata
  */
@@ -66,73 +241,47 @@ export const parseCompoundStructure = (compoundData) => {
   try {
     const atoms = [];
     const bonds = [];
-    let totalAtoms = 0;
-    let totalBonds = 0;
+    const atomData = compoundData.atoms || {};
+    const atomIds = atomData.aid || [];
+    const coordMap = getCoordinateMap(compoundData);
 
-    // Extract atom information
-    if (compoundData.atoms) {
-      const atomData = compoundData.atoms;
-      
-      // Parse atom elements
-      if (atomData.aid && atomData.element) {
-        for (let i = 0; i < atomData.aid.length; i++) {
-          atoms.push({
-            id: atomData.aid[i],
-            element: atomData.element[i],
-            x: atomData.coords?.[0]?.x?.[i] || 0,
-            y: atomData.coords?.[0]?.y?.[i] || 0,
-            z: atomData.coords?.[0]?.z?.[i] || 0,
-            charge: atomData.charge?.[i] || 0,
-          });
-        }
-        totalAtoms = atoms.length;
+    for (let i = 0; i < atomIds.length; i++) {
+      const aid = atomIds[i];
+      const coords = coordMap.get(aid) || { x: 0, y: 0, z: 0 };
+
+      atoms.push({
+        id: aid,
+        element: toElementSymbol(atomData.element?.[i]),
+        atomicNumber: typeof atomData.element?.[i] === 'number' ? atomData.element[i] : 0,
+        x: coords.x,
+        y: coords.y,
+        z: coords.z,
+        charge: atomData.charge?.[i] || 0,
+      });
+    }
+
+    const bondData = compoundData.bonds || {};
+    if (bondData.aid1 && bondData.aid2) {
+      for (let i = 0; i < bondData.aid1.length; i++) {
+        bonds.push({
+          from: bondData.aid1[i],
+          to: bondData.aid2[i],
+          type: bondData.order?.[i] || bondData.type?.[i] || 1,
+          stereo: bondData.stereo?.[i] || 0,
+        });
       }
     }
 
-    // Extract bond information
-    if (compoundData.bonds) {
-      const bondData = compoundData.bonds;
-      
-      if (bondData.aid1 && bondData.aid2) {
-        for (let i = 0; i < bondData.aid1.length; i++) {
-          bonds.push({
-            from: bondData.aid1[i],
-            to: bondData.aid2[i],
-            type: bondData.type?.[i] || 1, // 1=single, 2=double, 3=triple
-            stereo: bondData.stereo?.[i] || 0,
-          });
-        }
-        totalBonds = bonds.length;
-      }
-    }
-
-    // Extract metadata
-    const props = compoundData.props || [];
-    let molecularFormula = '';
-    let molecularWeight = 0;
-    let smiles = '';
-
-    for (const prop of props) {
-      if (prop.urn?.label === 'Molecular Formula') {
-        molecularFormula = prop.value?.sval || '';
-      }
-      if (prop.urn?.label === 'Molecular Weight') {
-        molecularWeight = prop.value?.fval || 0;
-      }
-      if (prop.urn?.label === 'SMILES') {
-        smiles = prop.value?.sval || '';
-      }
-    }
+    const metadata = extractMetadata(compoundData);
 
     return {
       atoms,
       bonds,
-      totalAtoms,
-      totalBonds,
-      molecularFormula,
-      molecularWeight,
-      smiles,
+      totalAtoms: atoms.length,
+      totalBonds: bonds.length,
+      ...metadata,
       cid: compoundData.id?.id?.cid,
+      has3D: atoms.some((atom) => Math.abs(atom.z) > 1e-6),
     };
   } catch (error) {
     throw new Error(`Failed to parse compound structure: ${error.message}`);
@@ -140,14 +289,13 @@ export const parseCompoundStructure = (compoundData) => {
 };
 
 /**
- * Fetch and parse complete molecule data
+ * Fetch and parse complete molecule data.
  * @param {string} query - Chemical name, formula, or SMILES
  * @param {string} searchType - 'name', 'formula', or 'smiles'
  * @returns {Promise<Object>} Complete parsed molecule data
  */
 export const fetchMoleculeData = async (query, searchType = 'name') => {
   try {
-    // Search for compound
     const searchResult = await searchCompound(query, searchType);
     const cid = searchResult.id?.id?.cid;
 
@@ -155,11 +303,12 @@ export const fetchMoleculeData = async (query, searchType = 'name') => {
       throw new Error('Could not find compound CID');
     }
 
-    // Get 3D structure
     const structureData = await getCompound3DStructure(cid);
-
-    // Parse structure
     const parsedData = parseCompoundStructure(structureData);
+
+    if (!parsedData.atoms.length) {
+      throw new Error('No atoms found in PubChem structure record');
+    }
 
     return {
       success: true,
@@ -175,42 +324,42 @@ export const fetchMoleculeData = async (query, searchType = 'name') => {
 };
 
 /**
- * Validate SMILES string format
+ * Validate SMILES string format.
  * @param {string} smiles - SMILES string
  * @returns {boolean} True if valid SMILES format
  */
 export const isValidSMILES = (smiles) => {
-  // Basic SMILES validation
-  const smilesRegex = /^[A-Za-z0-9\[\]()=@#\-+\\\/]+$/;
+  const smilesRegex = /^[A-Za-z0-9\[\]()=@#\-+\\\/.%]+$/;
   return smilesRegex.test(smiles);
 };
 
 /**
- * Detect input type (name, formula, or SMILES)
+ * Detect input type.
  * @param {string} input - User input
  * @returns {string} Detected type: 'name', 'formula', or 'smiles'
  */
 export const detectInputType = (input) => {
-  // Check if it looks like SMILES (contains special characters)
-  if (/[=@#\[\]()\\\/+\-]/.test(input)) {
+  const normalizedInput = normalizeQuery(input);
+
+  if (/[=@#\[\]()\\\/+]/.test(normalizedInput)) {
     return 'smiles';
   }
 
-  // Check if it looks like a formula (contains numbers and specific pattern)
-  if (/^[A-Z][a-z]?(\d+[A-Z][a-z]?)*\d*$/.test(input)) {
+  // General molecular formula pattern, e.g. H2O, C16H19N3O5S, NaCl.
+  if (/^([A-Z][a-z]?\d*)+$/.test(normalizedInput)) {
     return 'formula';
   }
 
-  // Default to name search
   return 'name';
 };
 
 /**
- * Smart search - automatically detect input type and search
+ * Smart search - automatically detect input type and search.
  * @param {string} query - User input
  * @returns {Promise<Object>} Molecule data
  */
 export const smartSearch = async (query) => {
-  const searchType = detectInputType(query);
-  return fetchMoleculeData(query, searchType);
+  const normalizedQuery = normalizeQuery(query);
+  const searchType = detectInputType(normalizedQuery);
+  return fetchMoleculeData(normalizedQuery, searchType);
 };
