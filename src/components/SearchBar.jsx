@@ -1,30 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { isLLMConfigured } from '../utils/nlpParser';
+import React, { useState } from 'react';
 
 /**
  * SearchBar Component
- * 支持化学名称、分子式、SMILES 与自然语言查询。
+ * 标准搜索：支持化学名称、分子式与 SMILES。
+ * 自然语言查询由独立的 NLPInput 组件负责，避免界面重复。
  */
 const SearchBar = ({ onSearch, isLoading }) => {
   const [query, setQuery] = useState('');
-  const [inputMode, setInputMode] = useState('standard');
-  const [hasLLM, setHasLLM] = useState(isLLMConfigured());
-
-  useEffect(() => {
-    const refreshConfigState = () => {
-      setHasLLM(isLLMConfigured());
-      if (!isLLMConfigured()) {
-        setInputMode('standard');
-      }
-    };
-
-    window.addEventListener('ai-config-updated', refreshConfigState);
-    return () => window.removeEventListener('ai-config-updated', refreshConfigState);
-  }, []);
 
   const handleSearch = () => {
-    if (query.trim()) {
-      onSearch(query, inputMode);
+    const trimmedQuery = query.trim();
+    if (trimmedQuery) {
+      onSearch(trimmedQuery, 'standard');
       setQuery('');
     }
   };
@@ -38,34 +25,12 @@ const SearchBar = ({ onSearch, isLoading }) => {
   return (
     <div className="w-full bg-white rounded-lg shadow-md p-6 mb-6">
       <div className="flex flex-col gap-4">
-        {hasLLM ? (
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setInputMode('standard')}
-              className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                inputMode === 'standard'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              标准输入
-            </button>
-            <button
-              onClick={() => setInputMode('nlp')}
-              className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                inputMode === 'nlp'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              自然语言
-            </button>
-          </div>
-        ) : (
-          <div className="rounded-md bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800">
-            如需使用自然语言搜索，请先在下方“AI 配置”中填写自己的 API Key 并选择模型。
-          </div>
-        )}
+        <div>
+          <h3 className="text-lg font-semibold text-gray-800">🔎 标准搜索</h3>
+          <p className="text-sm text-gray-600 mt-1">
+            直接输入英文化学名称、常见中文名、分子式或 SMILES 字符串生成分子结构。
+          </p>
+        </div>
 
         <div className="flex gap-3">
           <input
@@ -73,11 +38,7 @@ const SearchBar = ({ onSearch, isLoading }) => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder={
-              inputMode === 'nlp'
-                ? '例如：“显示水分子”或“绘制乙醇结构”'
-                : '例如：Amoxicillin、C16H19N3O5S，或 SMILES：CC(C)CC1=CC=C(C=C1)C(C)C'
-            }
+            placeholder="例如：Amoxicillin、阿莫西林、C16H19N3O5S，或 SMILES：CCO"
             disabled={isLoading}
             className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors"
           />
@@ -112,12 +73,8 @@ const SearchBar = ({ onSearch, isLoading }) => {
           </button>
         </div>
 
-        <div className="text-sm text-gray-600">
-          {inputMode === 'nlp' ? (
-            <p>💡 用自然语言描述分子，AI 会自动转换为可搜索的化学标识。</p>
-          ) : (
-            <p>💡 支持格式：化学名称、分子式或 SMILES 字符串。</p>
-          )}
+        <div className="text-sm text-gray-600 bg-blue-50 border border-blue-100 rounded-md px-4 py-3">
+          💡 标准搜索适合已知分子名称或结构标识；想用“显示某某分子”这类描述时，请使用下方自然语言查询。
         </div>
       </div>
     </div>
