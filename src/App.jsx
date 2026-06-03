@@ -3,6 +3,7 @@ import SearchBar from './components/SearchBar';
 import MoleculeViewer from './components/MoleculeViewer';
 import InfoPanel from './components/InfoPanel';
 import NLPInput from './components/NLPInput';
+import AIConfigPanel from './components/AIConfigPanel';
 import { smartSearch } from './utils/pubchemApi';
 import { parseNaturalLanguage } from './utils/nlpParser';
 import './App.css';
@@ -25,8 +26,8 @@ function App() {
       .replace('Failed to search compound:', '搜索化合物失败：')
       .replace('Failed to get 3D structure:', '获取 3D 结构失败：')
       .replace('Could not find compound CID', '未找到化合物 CID')
-      .replace('LLM API not configured', '尚未配置大模型 API Key')
-      .replace('LLM API key not configured', '尚未配置大模型 API Key')
+      .replace('LLM API not configured', '尚未配置大模型服务')
+      .replace('LLM API key not configured', '尚未配置大模型服务')
       .replace('Failed to parse query', '解析查询失败')
       .replace('An error occurred', '发生错误');
   };
@@ -93,6 +94,7 @@ function App() {
 
       <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-8">
+          <AIConfigPanel />
           <SearchBar onSearch={handleSearch} isLoading={isLoading} />
           <NLPInput onParsed={handleNLPParsed} isLoading={isLoading} />
         </div>
@@ -153,10 +155,10 @@ function App() {
             <div>
               <h3 className="font-semibold text-gray-700 mb-2">自然语言搜索（AI）</h3>
               <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                <li>先在“AI 配置”中填写自己的 API Key，并选择模型</li>
                 <li>用自然语言描述分子，例如“显示水分子”</li>
                 <li>AI 会把描述转换为可搜索的化学标识</li>
-                <li>支持中文、英文等多种描述方式</li>
-                <li>需要先配置 SiliconFlow API Key</li>
+                <li>配置只保存在当前浏览器，不会提交到代码仓库</li>
               </ul>
             </div>
           </div>
