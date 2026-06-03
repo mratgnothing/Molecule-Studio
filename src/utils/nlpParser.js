@@ -1,30 +1,90 @@
 /**
  * Natural Language Processing Parser
- * Converts natural language queries to molecule identifiers using LLM
- * Supports SiliconFlow API for LLM inference
+ * Converts natural language queries to molecule identifiers using an OpenAI-compatible LLM API.
+ * Runtime configuration is stored in localStorage so users can enter their own API key and model in the browser.
  */
 
 import axios from 'axios';
 
-const SILICON_API_KEY = import.meta.env.VITE_SILICON_API_KEY;
-const SILICON_API_BASE = import.meta.env.VITE_SILICON_API_BASE || 'https://api.siliconflow.cn/v1';
-const LLM_MODEL = import.meta.env.VITE_LLM_MODEL || 'Qwen/Qwen2.5-7B-Instruct';
+const DEFAULT_API_BASE = import.meta.env.VITE_SILICON_API_BASE || 'https://api.siliconflow.cn/v1';
+const DEFAULT_MODEL = import.meta.env.VITE_LLM_MODEL || 'Qwen/Qwen2.5-7B-Instruct';
+const ENV_API_KEY = import.meta.env.VITE_SILICON_API_KEY || '';
+const STORAGE_KEY = 'molecule_studio_ai_config';
 
-/**
- * Check if LLM API is configured
- * @returns {boolean} True if API key is available
- */
-export const isLLMConfigured = () => {
-  return !!SILICON_API_KEY;
+const DEFAULT_CONFIG = {
+  apiKey: ENV_API_KEY,
+  apiBase: DEFAULT_API_BASE,
+  model: DEFAULT_MODEL,
+};
+
+export const MODEL_OPTIONS = [
+  'Qwen/Qwen2.5-7B-Instruct',
+  'Qwen/Qwen2.5-14B-Instruct',
+  'Qwen/Qwen2.5-32B-Instruct',
+  'deepseek-ai/DeepSeek-V3',
+  'deepseek-ai/DeepSeek-R1',
+  'THUDM/glm-4-9b-chat',
+];
+
+export const getAIConfig = () => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_CONFIG;
+  }
+
+  try {
+    const rawConfig = window.localStorage.getItem(STORAGE_KEY);
+    if (!rawConfig) {
+      return DEFAULT_CONFIG;
+    }
+
+    const parsedConfig = JSON.parse(rawConfig);
+    return {
+      apiKey: parsedConfig.apiKey || DEFAULT_CONFIG.apiKey,
+      apiBase: parsedConfig.apiBase || DEFAULT_CONFIG.apiBase,
+      model: parsedConfig.model || DEFAULT_CONFIG.model,
+    };
+  } catch (error) {
+    console.warn('Failed to read AI config from localStorage:', error);
+    return DEFAULT_CONFIG;
+  }
+};
+
+export const saveAIConfig = (config) => {
+  if (typeof window === 'undefined') return;
+
+  const normalizedConfig = {
+    apiKey: config.apiKey?.trim() || '',
+    apiBase: config.apiBase?.trim() || DEFAULT_API_BASE,
+    model: config.model?.trim() || DEFAULT_MODEL,
+  };
+
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedConfig));
+  window.dispatchEvent(new Event('ai-config-updated'));
+};
+
+export const clearAIConfig = () => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(STORAGE_KEY);
+  window.dispatchEvent(new Event('ai-config-updated'));
 };
 
 /**
- * Call LLM API to parse natural language query
- * @param {string} query - Natural language query
- * @returns {Promise<Object>} LLM response with parsed molecule identifier
+ * Check if LLM API is configured.
+ * @returns {boolean} True if API key is available.
+ */
+export const isLLMConfigured = () => {
+  return !!getAIConfig().apiKey;
+};
+
+/**
+ * Call LLM API to parse natural language query.
+ * @param {string} query - Natural language query.
+ * @returns {Promise<Object>} LLM response with parsed molecule identifier.
  */
 export const callLLM = async (query) => {
-  if (!SILICON_API_KEY) {
+  const { apiKey, apiBase, model } = getAIConfig();
+
+  if (!apiKey) {
     throw new Error('LLM API key not configured');
   }
 
@@ -46,9 +106,9 @@ Examples:
 Always respond with valid JSON only, no additional text.`;
 
     const response = await axios.post(
-      `${SILICON_API_BASE}/chat/completions`,
+      `${apiBase.replace(/\/$/, '')}/chat/completions`,
       {
-        model: LLM_MODEL,
+        model,
         messages: [
           {
             role: 'system',
@@ -64,7 +124,7 @@ Always respond with valid JSON only, no additional text.`;
       },
       {
         headers: {
-          'Authorization': `Bearer ${SILICON_API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         timeout: 15000,
@@ -73,8 +133,7 @@ Always respond with valid JSON only, no additional text.`;
 
     if (response.data?.choices?.[0]?.message?.content) {
       const content = response.data.choices[0].message.content.trim();
-      
-      // Try to parse JSON response
+
       try {
         const parsed = JSON.parse(content);
         return {
@@ -82,7 +141,6 @@ Always respond with valid JSON only, no additional text.`;
           data: parsed,
         };
       } catch (e) {
-        // If JSON parsing fails, try to extract molecule name from response
         return {
           success: true,
           data: {
@@ -101,9 +159,9 @@ Always respond with valid JSON only, no additional text.`;
 };
 
 /**
- * Parse natural language query to molecule identifier
- * @param {string} query - Natural language query
- * @returns {Promise<Object>} Parsed molecule identifier
+ * Parse natural language query to molecule identifier.
+ * @param {string} query - Natural language query.
+ * @returns {Promise<Object>} Parsed molecule identifier.
  */
 export const parseNaturalLanguage = async (query) => {
   try {
@@ -131,13 +189,7 @@ export const parseNaturalLanguage = async (query) => {
   }
 };
 
-/**
- * Extract molecule name from various query formats
- * @param {string} query - User query
- * @returns {string} Extracted molecule name
- */
 export const extractMoleculeName = (query) => {
-  // Remove common phrases
   let cleaned = query
     .replace(/^(show|draw|visualize|display|render)\s+/i, '')
     .replace(/\s+(molecule|structure|model|compound)$/i, '')
@@ -147,11 +199,6 @@ export const extractMoleculeName = (query) => {
   return cleaned;
 };
 
-/**
- * Batch parse multiple natural language queries
- * @param {Array<string>} queries - Array of natural language queries
- * @returns {Promise<Array>} Array of parsed results
- */
 export const batchParseNaturalLanguage = async (queries) => {
   try {
     const results = await Promise.all(
@@ -163,11 +210,6 @@ export const batchParseNaturalLanguage = async (queries) => {
   }
 };
 
-/**
- * Validate parsed molecule data
- * @param {Object} data - Parsed molecule data
- * @returns {boolean} True if data is valid
- */
 export const validateParsedData = (data) => {
   return (
     data &&
