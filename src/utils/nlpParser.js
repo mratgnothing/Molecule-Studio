@@ -76,6 +76,27 @@ export const isLLMConfigured = () => {
   return !!getAIConfig().apiKey;
 };
 
+const stripMarkdownCodeFence = (content) => {
+  return content
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```$/i, '')
+    .trim();
+};
+
+const parseLLMJson = (content) => {
+  const cleaned = stripMarkdownCodeFence(content);
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    throw error;
+  }
+};
+
 /**
  * Call LLM API to parse natural language query.
  * @param {string} query - Natural language query.
@@ -89,21 +110,25 @@ export const callLLM = async (query) => {
   }
 
   try {
-    const systemPrompt = `You are a chemistry expert assistant. Your task is to convert natural language queries about molecules into chemical identifiers.
+    const systemPrompt = `You are a chemistry expert assistant. Convert natural language queries about molecules into PubChem-searchable identifiers.
 
-When given a query about a molecule, respond with ONLY a JSON object in this exact format:
+Return ONLY a valid JSON object in this exact format:
 {
-  "moleculeName": "the chemical name or common name",
-  "smiles": "SMILES string if available",
-  "formula": "molecular formula if known"
+  "moleculeName": "English chemical name or English common name, never Chinese",
+  "smiles": "valid SMILES string if confidently available, otherwise empty string",
+  "formula": "molecular formula if known, otherwise empty string"
 }
 
-Examples:
-- Query: "Show me water molecule" → {"moleculeName": "water", "smiles": "O", "formula": "H2O"}
-- Query: "Draw ethanol structure" → {"moleculeName": "ethanol", "smiles": "CCO", "formula": "C2H6O"}
-- Query: "Visualize caffeine" → {"moleculeName": "caffeine", "smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C", "formula": "C8H10N4O2"}
+Rules:
+- If the user asks in Chinese, translate the molecule name into English before returning JSON.
+- Prefer a correct common English name and a valid SMILES string when possible.
+- Do not include Markdown code fences or extra explanation.
 
-Always respond with valid JSON only, no additional text.`;
+Examples:
+- Query: "显示水分子" → {"moleculeName":"water","smiles":"O","formula":"H2O"}
+- Query: "绘制乙醇结构" → {"moleculeName":"ethanol","smiles":"CCO","formula":"C2H6O"}
+- Query: "Visualize caffeine" → {"moleculeName":"caffeine","smiles":"CN1C=NC2=C1C(=O)N(C(=O)N2C)C","formula":"C8H10N4O2"}
+- Query: "显示阿莫西林" → {"moleculeName":"amoxicillin","smiles":"","formula":"C16H19N3O5S"}`;
 
     const response = await axios.post(
       `${apiBase.replace(/\/$/, '')}/chat/completions`,
@@ -119,7 +144,7 @@ Always respond with valid JSON only, no additional text.`;
             content: query,
           },
         ],
-        temperature: 0.3,
+        temperature: 0.1,
         max_tokens: 200,
       },
       {
@@ -135,7 +160,7 @@ Always respond with valid JSON only, no additional text.`;
       const content = response.data.choices[0].message.content.trim();
 
       try {
-        const parsed = JSON.parse(content);
+        const parsed = parseLLMJson(content);
         return {
           success: true,
           data: parsed,
