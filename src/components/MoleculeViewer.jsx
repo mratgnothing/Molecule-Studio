@@ -16,7 +16,49 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
   const atomMeshesRef = useRef([]);
   const raycasterRef = useRef(new THREE.Raycaster());
   const mouseRef = useRef(new THREE.Vector2());
+  const animationFrameRef = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const disposeObject = (object) => {
+    if (!object) return;
+
+    object.traverse?.((child) => {
+      if (child.geometry) {
+        child.geometry.dispose();
+      }
+
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((material) => material.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
+  };
+
+  const clearMoleculeGroup = () => {
+    const moleculeGroup = moleculeGroupRef.current;
+    if (!moleculeGroup) return;
+
+    while (moleculeGroup.children.length > 0) {
+      const child = moleculeGroup.children[0];
+      disposeObject(child);
+      moleculeGroup.remove(child);
+    }
+
+    atomMeshesRef.current = [];
+  };
+
+  const requestRender = () => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+
+    if (renderer && scene && camera) {
+      renderer.render(scene, camera);
+    }
+  };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -36,7 +78,7 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
@@ -58,8 +100,6 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
     const controls = {
       autoRotate: false,
       autoRotateSpeed: 2,
-      enableZoom: true,
-      enablePan: true,
     };
     controlsRef.current = controls;
 
@@ -71,12 +111,11 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
       mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
       raycasterRef.current.setFromCamera(mouseRef.current, camera);
-      const intersects = raycasterRef.current.intersectObjects(atomMeshesRef.current);
+      const intersects = raycasterRef.current.intersectObjects(atomMeshesRef.current, false);
 
       if (intersects.length > 0) {
         const selectedMesh = intersects[0].object;
-        const atomData = selectedMesh.userData;
-        onAtomSelect(atomData);
+        onAtomSelect(selectedMesh.userData);
       } else {
         onAtomDeselect();
       }
@@ -90,15 +129,18 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
       const direction = event.deltaY > 0 ? 1 : -1;
       camera.position.z += direction * zoomSpeed;
       camera.position.z = Math.max(5, Math.min(200, camera.position.z));
+      requestRender();
     };
 
     renderer.domElement.addEventListener('wheel', onMouseWheel, { passive: false });
 
     let isDragging = false;
+    let dragButton = 0;
     let previousMousePosition = { x: 0, y: 0 };
 
     const onMouseDown = (e) => {
       isDragging = true;
+      dragButton = e.button;
       previousMousePosition = { x: e.clientX, y: e.clientY };
     };
 
@@ -108,27 +150,31 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
       const deltaX = e.clientX - previousMousePosition.x;
       const deltaY = e.clientY - previousMousePosition.y;
 
-      if (e.button === 0) {
+      if (dragButton === 0) {
         const rotationSpeed = 0.01;
         moleculeGroup.rotation.y += deltaX * rotationSpeed;
         moleculeGroup.rotation.x += deltaY * rotationSpeed;
-      } else if (e.button === 2) {
+      } else if (dragButton === 2) {
         const panSpeed = 0.1;
         camera.position.x -= deltaX * panSpeed;
         camera.position.y += deltaY * panSpeed;
       }
 
       previousMousePosition = { x: e.clientX, y: e.clientY };
+      requestRender();
     };
 
     const onMouseUp = () => {
       isDragging = false;
     };
 
+    const onContextMenu = (e) => e.preventDefault();
+
     renderer.domElement.addEventListener('mousedown', onMouseDown);
     renderer.domElement.addEventListener('mousemove', onMouseMove);
     renderer.domElement.addEventListener('mouseup', onMouseUp);
-    renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+    renderer.domElement.addEventListener('mouseleave', onMouseUp);
+    renderer.domElement.addEventListener('contextmenu', onContextMenu);
 
     const onWindowResize = () => {
       if (!containerRef.current) return;
@@ -137,55 +183,71 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
+      requestRender();
     };
 
     window.addEventListener('resize', onWindowResize);
 
     const animate = () => {
-      requestAnimationFrame(animate);
-
       if (controls.autoRotate && moleculeGroup) {
         moleculeGroup.rotation.y += controls.autoRotateSpeed * 0.001;
+        renderer.render(scene, camera);
       }
-
-      renderer.render(scene, camera);
+      animationFrameRef.current = requestAnimationFrame(animate);
     };
 
-    animate();
+    requestRender();
+    animationFrameRef.current = requestAnimationFrame(animate);
 
     return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+
       window.removeEventListener('resize', onWindowResize);
       renderer.domElement.removeEventListener('click', onMouseClick);
       renderer.domElement.removeEventListener('wheel', onMouseWheel);
       renderer.domElement.removeEventListener('mousedown', onMouseDown);
       renderer.domElement.removeEventListener('mousemove', onMouseMove);
       renderer.domElement.removeEventListener('mouseup', onMouseUp);
-      containerRef.current?.removeChild(renderer.domElement);
+      renderer.domElement.removeEventListener('mouseleave', onMouseUp);
+      renderer.domElement.removeEventListener('contextmenu', onContextMenu);
+
+      clearMoleculeGroup();
+      scene.remove(moleculeGroup);
+      disposeObject(gridHelper);
+      renderer.dispose();
+
+      if (renderer.domElement.parentNode) {
+        renderer.domElement.parentNode.removeChild(renderer.domElement);
+      }
+
+      sceneRef.current = null;
+      cameraRef.current = null;
+      rendererRef.current = null;
+      moleculeGroupRef.current = null;
     };
   }, [onAtomSelect, onAtomDeselect]);
 
   useEffect(() => {
-    if (!moleculeData || !moleculeGroupRef.current) return;
+    if (!moleculeData || !moleculeGroupRef.current || !cameraRef.current) return;
 
     setIsLoading(true);
-
-    while (moleculeGroupRef.current.children.length > 0) {
-      moleculeGroupRef.current.removeChild(moleculeGroupRef.current.children[0]);
-    }
-    atomMeshesRef.current = [];
+    clearMoleculeGroup();
 
     try {
+      const moleculeGroup = moleculeGroupRef.current;
       const atoms = moleculeData.atoms || [];
-      const atomMeshMap = {};
+      const atomMeshMap = new Map();
 
       atoms.forEach((atom) => {
         const config = getElementConfig(atom.element);
-        const radius = getScaledRadius(atom.element, 0.4);
+        const radius = getScaledRadius(atom.element, 0.35);
 
-        const geometry = new THREE.SphereGeometry(radius, 32, 32);
+        const geometry = new THREE.SphereGeometry(radius, 16, 16);
         const material = new THREE.MeshPhongMaterial({
           color: config.color,
-          shininess: 100,
+          shininess: 80,
         });
 
         const mesh = new THREE.Mesh(geometry, material);
@@ -193,7 +255,7 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
         mesh.userData = {
           id: atom.id,
           element: atom.element,
-          atomicNumber: config.atomicNumber,
+          atomicNumber: atom.atomicNumber || config.atomicNumber,
           mass: config.mass,
           charge: atom.charge || 0,
           x: atom.x || 0,
@@ -201,9 +263,9 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
           z: atom.z || 0,
         };
 
-        moleculeGroupRef.current.add(mesh);
+        moleculeGroup.add(mesh);
         atomMeshesRef.current.push(mesh);
-        atomMeshMap[atom.id] = mesh;
+        atomMeshMap.set(atom.id, mesh);
       });
 
       const bonds = moleculeData.bonds || [];
@@ -216,7 +278,9 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
           const end = new THREE.Vector3(toAtom.x || 0, toAtom.y || 0, toAtom.z || 0);
           const distance = start.distanceTo(end);
 
-          const geometry = new THREE.CylinderGeometry(0.15, 0.15, distance, 16);
+          if (distance < 1e-6) return;
+
+          const geometry = new THREE.CylinderGeometry(0.1, 0.1, distance, 8);
           const material = new THREE.MeshPhongMaterial({ color: 0x888888 });
           const cylinder = new THREE.Mesh(geometry, material);
 
@@ -229,25 +293,29 @@ const MoleculeViewer = ({ moleculeData, onAtomSelect, onAtomDeselect }) => {
           quaternion.setFromUnitVectors(axis, direction);
           cylinder.quaternion.copy(quaternion);
 
-          moleculeGroupRef.current.add(cylinder);
+          moleculeGroup.add(cylinder);
         }
       });
 
-      const box = new THREE.Box3().setFromObject(moleculeGroupRef.current);
+      moleculeGroup.rotation.set(0, 0, 0);
+      moleculeGroup.position.set(0, 0, 0);
+
+      const box = new THREE.Box3().setFromObject(moleculeGroup);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
 
-      moleculeGroupRef.current.position.sub(center);
+      moleculeGroup.position.sub(center);
 
-      const maxDim = Math.max(size.x, size.y, size.z);
+      const maxDim = Math.max(size.x, size.y, size.z, 1);
       const fov = cameraRef.current.fov * (Math.PI / 180);
       let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-      cameraZ *= 1.5;
+      cameraZ *= 1.8;
 
-      cameraRef.current.position.z = cameraZ;
-      cameraRef.current.lookAt(moleculeGroupRef.current.position);
+      cameraRef.current.position.set(0, 0, Math.max(cameraZ, 8));
+      cameraRef.current.lookAt(0, 0, 0);
 
       setIsLoading(false);
+      requestRender();
     } catch (error) {
       console.error('Error rendering molecule:', error);
       setIsLoading(false);
