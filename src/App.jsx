@@ -8,8 +8,7 @@ import { parseNaturalLanguage } from './utils/nlpParser';
 import './App.css';
 
 /**
- * Molecule Studio - AI-driven 3D Chemical Molecular Visualization Tool
- * Main application component
+ * Molecule Studio - AI 驱动的 3D 化学分子可视化与建模工具
  */
 function App() {
   const [moleculeData, setMoleculeData] = useState(null);
@@ -17,11 +16,21 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  /**
-   * Handle molecule search
-   * @param {string} query - Search query (name, formula, or SMILES)
-   * @param {string} inputMode - 'standard' or 'nlp'
-   */
+  const toChineseError = (message) => {
+    if (!message) return '发生未知错误';
+    return message
+      .replace('Failed to parse natural language query', '自然语言查询解析失败')
+      .replace('Failed to fetch molecule data', '获取分子数据失败')
+      .replace('No compound found for:', '未找到对应化合物：')
+      .replace('Failed to search compound:', '搜索化合物失败：')
+      .replace('Failed to get 3D structure:', '获取 3D 结构失败：')
+      .replace('Could not find compound CID', '未找到化合物 CID')
+      .replace('LLM API not configured', '尚未配置大模型 API Key')
+      .replace('LLM API key not configured', '尚未配置大模型 API Key')
+      .replace('Failed to parse query', '解析查询失败')
+      .replace('An error occurred', '发生错误');
+  };
+
   const handleSearch = useCallback(async (query, inputMode = 'standard') => {
     setIsLoading(true);
     setError(null);
@@ -30,93 +39,72 @@ function App() {
     try {
       let searchQuery = query;
 
-      // If NLP mode, parse natural language first
       if (inputMode === 'nlp') {
         const parseResult = await parseNaturalLanguage(query);
         if (!parseResult.success) {
-          throw new Error(parseResult.error || 'Failed to parse natural language query');
+          throw new Error(parseResult.error || '自然语言查询解析失败');
         }
-        // Use molecule name or SMILES from parsed result
         searchQuery = parseResult.moleculeName || parseResult.smiles || query;
       }
 
-      // Search for molecule
       const result = await smartSearch(searchQuery);
 
       if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch molecule data');
+        throw new Error(result.error || '获取分子数据失败');
       }
 
       setMoleculeData(result.data);
     } catch (err) {
-      setError(err.message);
+      setError(toChineseError(err.message));
       setMoleculeData(null);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  /**
-   * Handle NLP parsing result
-   * @param {Object} parsedResult - Parsed molecule data
-   */
   const handleNLPParsed = useCallback((parsedResult) => {
-    // Use the parsed molecule name to search
     const searchQuery = parsedResult.moleculeName || parsedResult.smiles;
     if (searchQuery) {
       handleSearch(searchQuery, 'standard');
     }
   }, [handleSearch]);
 
-  /**
-   * Handle atom selection
-   * @param {Object} atomData - Selected atom data
-   */
   const handleAtomSelect = useCallback((atomData) => {
     setSelectedAtom(atomData);
   }, []);
 
-  /**
-   * Handle atom deselection
-   */
   const handleAtomDeselect = useCallback(() => {
     setSelectedAtom(null);
   }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* Header */}
       <header className="bg-white shadow-md">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex items-center gap-3">
             <div className="text-3xl">🧬</div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-800">Molecule Studio</h1>
-              <p className="text-gray-600 text-sm">AI-driven 3D Chemical Molecular Visualization & Modeling</p>
+              <h1 className="text-3xl font-bold text-gray-800">Molecule Studio 分子工作室</h1>
+              <p className="text-gray-600 text-sm">AI 驱动的 3D 化学分子可视化与建模工具</p>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Search Section */}
         <div className="mb-8">
           <SearchBar onSearch={handleSearch} isLoading={isLoading} />
           <NLPInput onParsed={handleNLPParsed} isLoading={isLoading} />
         </div>
 
-        {/* Error Message */}
         {error && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg mb-6">
-            <p className="text-red-700 font-semibold">Error</p>
+            <p className="text-red-700 font-semibold">错误</p>
             <p className="text-red-600 text-sm mt-1">{error}</p>
           </div>
         )}
 
-        {/* Main Layout: 3D Viewer + Info Panel */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 3D Molecule Viewer */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="h-96 lg:h-[600px]">
@@ -128,11 +116,11 @@ function App() {
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-                    <div className="text-center">
+                    <div className="text-center px-6">
                       <div className="text-6xl mb-4">🔍</div>
-                      <p className="text-gray-600 font-semibold">Search for a molecule to visualize</p>
+                      <p className="text-gray-600 font-semibold">搜索一个分子，开始 3D 可视化</p>
                       <p className="text-gray-500 text-sm mt-2">
-                        Try: Amoxicillin, Caffeine, H2O, or use natural language
+                        示例：阿莫西林、咖啡因、H2O，也可以使用自然语言描述
                       </p>
                     </div>
                   </div>
@@ -141,7 +129,6 @@ function App() {
             </div>
           </div>
 
-          {/* Information Panel */}
           <div className="lg:col-span-1">
             <InfoPanel
               moleculeData={moleculeData}
@@ -151,48 +138,46 @@ function App() {
           </div>
         </div>
 
-        {/* Instructions */}
         <div className="mt-8 bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">📖 How to Use</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-4">📖 使用说明</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <h3 className="font-semibold text-gray-700 mb-2">Standard Search</h3>
+              <h3 className="font-semibold text-gray-700 mb-2">标准搜索</h3>
               <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
-                <li>Enter a chemical name (e.g., Amoxicillin, Caffeine)</li>
-                <li>Enter a molecular formula (e.g., C16H19N3O5S, H2O)</li>
-                <li>Enter a SMILES string for advanced users</li>
-                <li>Click "Visualize" to generate 3D model</li>
+                <li>输入化学名称，例如 Amoxicillin、Caffeine、Aspirin</li>
+                <li>输入分子式，例如 C16H19N3O5S、H2O</li>
+                <li>高级用户可以直接输入 SMILES 字符串</li>
+                <li>点击“可视化”生成 3D 分子模型</li>
               </ul>
             </div>
             <div>
-              <h3 className="font-semibold text-gray-700 mb-2">Natural Language (AI)</h3>
+              <h3 className="font-semibold text-gray-700 mb-2">自然语言搜索（AI）</h3>
               <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
-                <li>Describe molecules naturally (e.g., "water molecule")</li>
-                <li>AI converts your query to searchable format</li>
-                <li>Supports multiple languages and descriptions</li>
-                <li>Requires SiliconFlow API key configuration</li>
+                <li>用自然语言描述分子，例如“显示水分子”</li>
+                <li>AI 会把描述转换为可搜索的化学标识</li>
+                <li>支持中文、英文等多种描述方式</li>
+                <li>需要先配置 SiliconFlow API Key</li>
               </ul>
             </div>
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200">
-            <h3 className="font-semibold text-gray-700 mb-2">Interaction Controls</h3>
+            <h3 className="font-semibold text-gray-700 mb-2">交互控制</h3>
             <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
-              <li><strong>Left Mouse Drag:</strong> Rotate molecule</li>
-              <li><strong>Right Mouse Drag:</strong> Pan view</li>
-              <li><strong>Mouse Wheel:</strong> Zoom in/out</li>
-              <li><strong>Click Atom:</strong> View element details</li>
+              <li><strong>鼠标左键拖动：</strong>旋转分子</li>
+              <li><strong>鼠标右键拖动：</strong>平移视图</li>
+              <li><strong>鼠标滚轮：</strong>放大或缩小</li>
+              <li><strong>点击原子：</strong>查看元素详情</li>
             </ul>
           </div>
         </div>
 
-        {/* Footer */}
         <footer className="mt-8 text-center text-gray-600 text-sm">
-          <p>Molecule Studio © 2026 | Powered by React, Three.js, and PubChem API</p>
+          <p>Molecule Studio © 2026 | 基于 React、Three.js 与 PubChem API 构建</p>
           <p className="mt-2">
-            Data source:{' '}
+            数据来源：{' '}
             <a href="https://pubchem.ncbi.nlm.nih.gov/" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-              PubChem Database
+              PubChem 数据库
             </a>
           </p>
         </footer>
