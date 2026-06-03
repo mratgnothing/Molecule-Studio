@@ -3,8 +3,7 @@ import { parseNaturalLanguage, isLLMConfigured } from '../utils/nlpParser';
 
 /**
  * NLPInput Component
- * Handles natural language query parsing and conversion to molecule identifiers
- * Provides feedback on parsing results
+ * 负责把自然语言描述解析为可搜索的分子标识。
  */
 const NLPInput = ({ onParsed, isLoading }) => {
   const [query, setQuery] = useState('');
@@ -17,6 +16,17 @@ const NLPInput = ({ onParsed, isLoading }) => {
   if (!hasLLM) {
     return null;
   }
+
+  const toChineseError = (message) => {
+    if (!message) return '发生未知错误';
+    return message
+      .replace('Failed to parse query', '解析查询失败')
+      .replace('An error occurred', '发生错误')
+      .replace('LLM API not configured', '尚未配置大模型服务')
+      .replace('LLM API key not configured', '尚未配置大模型服务')
+      .replace('Invalid LLM response format', '大模型响应格式无效')
+      .replace('LLM API call failed:', '大模型服务调用失败：');
+  };
 
   const handleParse = async () => {
     if (!query.trim()) return;
@@ -33,10 +43,10 @@ const NLPInput = ({ onParsed, isLoading }) => {
         onParsed(result);
         setQuery('');
       } else {
-        setError(result.error || 'Failed to parse query');
+        setError(toChineseError(result.error || '解析查询失败'));
       }
     } catch (err) {
-      setError(err.message || 'An error occurred');
+      setError(toChineseError(err.message));
     } finally {
       setParseLoading(false);
     }
@@ -50,7 +60,7 @@ const NLPInput = ({ onParsed, isLoading }) => {
 
   return (
     <div className="w-full bg-white rounded-lg shadow-md p-6 mb-6">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">🤖 Natural Language Query</h3>
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">🤖 自然语言查询</h3>
 
       <div className="flex gap-3 mb-4">
         <input
@@ -58,7 +68,7 @@ const NLPInput = ({ onParsed, isLoading }) => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyPress={handleKeyPress}
-          placeholder="e.g., 'Show me caffeine molecule' or 'Draw the structure of aspirin'"
+          placeholder="例如：'显示咖啡因分子' 或 '绘制阿司匹林结构'"
           disabled={parseLoading || isLoading}
           className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors"
         />
@@ -85,53 +95,50 @@ const NLPInput = ({ onParsed, isLoading }) => {
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                 />
               </svg>
-              Parsing...
+              解析中...
             </span>
           ) : (
-            'Parse'
+            '解析'
           )}
         </button>
       </div>
 
-      {/* Parse Result */}
       {parseResult && (
         <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded mb-4">
-          <p className="text-sm text-green-700 font-semibold mb-2">✓ Parsed Successfully</p>
+          <p className="text-sm text-green-700 font-semibold mb-2">✓ 解析成功</p>
           <div className="space-y-2 text-sm text-gray-700">
             {parseResult.moleculeName && (
               <p>
-                <span className="font-semibold">Molecule:</span> {parseResult.moleculeName}
+                <span className="font-semibold">分子名称：</span> {parseResult.moleculeName}
               </p>
             )}
             {parseResult.formula && (
               <p>
-                <span className="font-semibold">Formula:</span> {parseResult.formula}
+                <span className="font-semibold">分子式：</span> {parseResult.formula}
               </p>
             )}
             {parseResult.smiles && (
               <p>
-                <span className="font-semibold">SMILES:</span> <code className="bg-white px-2 py-1 rounded">{parseResult.smiles}</code>
+                <span className="font-semibold">SMILES：</span> <code className="bg-white px-2 py-1 rounded">{parseResult.smiles}</code>
               </p>
             )}
           </div>
         </div>
       )}
 
-      {/* Error Message */}
       {error && (
         <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded mb-4">
-          <p className="text-sm text-red-700 font-semibold">✗ Error</p>
+          <p className="text-sm text-red-700 font-semibold">✗ 错误</p>
           <p className="text-sm text-red-600 mt-1">{error}</p>
         </div>
       )}
 
-      {/* Help Text */}
       <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded">
-        <p className="font-semibold mb-1">💡 Tips:</p>
+        <p className="font-semibold mb-1">💡 使用提示：</p>
         <ul className="list-disc list-inside space-y-1">
-          <li>Describe molecules in natural language (e.g., "water", "caffeine", "aspirin")</li>
-          <li>AI will automatically convert your query to a searchable format</li>
-          <li>The parsed result will be used to fetch molecular data</li>
+          <li>可以用自然语言描述分子，例如“水”“咖啡因”“阿司匹林”</li>
+          <li>AI 会自动把描述转换为可搜索的化学名称、分子式或 SMILES</li>
+          <li>解析结果会自动用于获取分子结构数据</li>
         </ul>
       </div>
     </div>
