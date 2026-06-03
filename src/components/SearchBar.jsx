@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
 
+const EXAMPLE_MOLECULES = [
+  { label: '水', query: 'water' },
+  { label: '乙醇', query: 'ethanol' },
+  { label: '咖啡因', query: 'caffeine' },
+  { label: '阿司匹林', query: 'aspirin' },
+  { label: '阿莫西林', query: 'amoxicillin' },
+  { label: '葡萄糖', query: 'glucose' },
+  { label: '苯', query: 'benzene' },
+];
+
 /**
  * SearchBar Component
  * 标准搜索：支持化学名称、分子式与 SMILES。
@@ -12,6 +22,13 @@ const SearchBar = ({ onSearch, isLoading }) => {
     const trimmedQuery = query.trim();
     if (trimmedQuery) {
       onSearch(trimmedQuery, 'standard');
+      setQuery('');
+    }
+  };
+
+  const handleExampleSearch = (exampleQuery) => {
+    if (!isLoading) {
+      onSearch(exampleQuery, 'standard');
       setQuery('');
     }
   };
@@ -73,7 +90,24 @@ const SearchBar = ({ onSearch, isLoading }) => {
           </button>
         </div>
 
-        <div className="text-sm text-gray-600 bg-blue-50 border border-blue-100 rounded-md px-4 py-3">
+        <div className="rounded-md bg-blue-50 border border-blue-100 px-4 py-3">
+          <p className="text-sm font-semibold text-gray-700 mb-2">⚡ 示例分子快捷入口</p>
+          <div className="flex flex-wrap gap-2">
+            {EXAMPLE_MOLECULES.map((item) => (
+              <button
+                key={item.query}
+                type="button"
+                onClick={() => handleExampleSearch(item.query)}
+                disabled={isLoading}
+                className="px-3 py-1.5 rounded-full bg-white border border-blue-200 text-blue-700 text-sm hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="text-sm text-gray-600 bg-gray-50 border border-gray-100 rounded-md px-4 py-3">
           💡 标准搜索适合已知分子名称或结构标识；想用“显示某某分子”这类描述时，请使用下方自然语言查询。
         </div>
       </div>
