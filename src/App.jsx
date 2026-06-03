@@ -16,6 +16,10 @@ function App() {
   const [selectedAtom, setSelectedAtom] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [displayOptions, setDisplayOptions] = useState({
+    showElementLabels: false,
+    showAtomIds: false,
+  });
 
   const toChineseError = (message) => {
     if (!message) return '发生未知错误';
@@ -32,6 +36,44 @@ function App() {
       .replace('LLM API key not configured', '尚未配置大模型服务')
       .replace('Failed to parse query', '解析查询失败')
       .replace('An error occurred', '发生错误');
+  };
+
+  const getFriendlyError = (message) => {
+    const chineseMessage = toChineseError(message);
+    const lowerMessage = String(message || '').toLowerCase();
+
+    if (lowerMessage.includes('http 400') || lowerMessage.includes('no compound') || lowerMessage.includes('cid')) {
+      return {
+        title: '没有找到可用的分子结构',
+        message: chineseMessage,
+        suggestions: [
+          '优先尝试英文通用名，例如 caffeine、aspirin、amoxicillin。',
+          '中文名称可以用常见写法，例如 咖啡因、阿司匹林、阿莫西林。',
+          '如果是分子式，可能对应多个同分异构体，建议改用英文名称或 PubChem CID。',
+          '如果是 SMILES，请确认括号、双键符号和大小写完全正确。',
+        ],
+      };
+    }
+
+    if (lowerMessage.includes('llm') || lowerMessage.includes('api key')) {
+      return {
+        title: '自然语言服务暂不可用',
+        message: chineseMessage,
+        suggestions: [
+          '检查 AI 配置中的 API Key、API Base 和模型名称是否正确。',
+          '也可以先使用上方标准搜索，直接输入英文名称或中文常见名。',
+        ],
+      };
+    }
+
+    return {
+      title: '操作失败',
+      message: chineseMessage,
+      suggestions: [
+        '换一个更常见的分子名称再试。',
+        '检查网络是否可以访问 PubChem。',
+      ],
+    };
   };
 
   const getSearchCandidates = (parsedResult, fallbackQuery) => {
@@ -90,7 +132,7 @@ function App() {
 
       setMoleculeData(result.data);
     } catch (err) {
-      setError(toChineseError(err.message));
+      setError(getFriendlyError(err.message));
       setMoleculeData(null);
     } finally {
       setIsLoading(false);
@@ -100,20 +142,24 @@ function App() {
   const handleNLPParsed = useCallback((parsedResult) => {
     const candidates = getSearchCandidates(parsedResult, '');
     if (candidates.length > 0) {
+      setIsLoading(true);
+      setError(null);
+      setSelectedAtom(null);
+
       searchWithCandidates(candidates)
         .then((result) => {
           if (result.success) {
-            setError(null);
             setMoleculeData(result.data);
           } else {
-            setError(toChineseError(result.error || '获取分子数据失败'));
+            setError(getFriendlyError(result.error || '获取分子数据失败'));
             setMoleculeData(null);
           }
         })
         .catch((err) => {
-          setError(toChineseError(err.message));
+          setError(getFriendlyError(err.message));
           setMoleculeData(null);
-        });
+        })
+        .finally(() => setIsLoading(false));
     }
   }, []);
 
@@ -124,6 +170,8 @@ function App() {
   const handleAtomDeselect = useCallback(() => {
     setSelectedAtom(null);
   }, []);
+
+  const errorInfo = error && (typeof error === 'string' ? getFriendlyError(error) : error);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -146,10 +194,17 @@ function App() {
           <NLPInput onParsed={handleNLPParsed} isLoading={isLoading} />
         </div>
 
-        {error && (
+        {errorInfo && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg mb-6">
-            <p className="text-red-700 font-semibold">错误</p>
-            <p className="text-red-600 text-sm mt-1">{error}</p>
+            <p className="text-red-700 font-semibold">{errorInfo.title}</p>
+            <p className="text-red-600 text-sm mt-1">{errorInfo.message}</p>
+            {errorInfo.suggestions?.length > 0 && (
+              <ul className="mt-3 text-sm text-red-700 list-disc list-inside space-y-1">
+                {errorInfo.suggestions.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 
@@ -160,6 +215,7 @@ function App() {
                 {moleculeData ? (
                   <MoleculeViewer
                     moleculeData={moleculeData}
+                    displayOptions={displayOptions}
                     onAtomSelect={handleAtomSelect}
                     onAtomDeselect={handleAtomDeselect}
                   />
@@ -182,6 +238,8 @@ function App() {
             <InfoPanel
               moleculeData={moleculeData}
               selectedAtom={selectedAtom}
+              displayOptions={displayOptions}
+              onDisplayOptionsChange={setDisplayOptions}
               onAtomDeselect={handleAtomDeselect}
             />
           </div>
