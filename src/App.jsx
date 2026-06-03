@@ -35,11 +35,11 @@ function App() {
   };
 
   const getBestSearchQuery = (parsedResult, fallbackQuery) => {
-    // PubChem is most reliable with SMILES, then English names.
-    // Formula search may return many isomers, so keep it after the name unless no name is available.
+    // Natural-language model outputs can hallucinate SMILES/formula values.
+    // PubChem name search is safer for AI-parsed queries, so use the English name first.
     return (
-      parsedResult?.smiles ||
       parsedResult?.moleculeName ||
+      parsedResult?.smiles ||
       parsedResult?.formula ||
       fallbackQuery
     );
@@ -171,7 +171,7 @@ function App() {
               <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
                 <li>先在“AI 配置”中填写自己的 API Key，并选择模型</li>
                 <li>用自然语言描述分子，例如“显示水分子”</li>
-                <li>AI 会把描述转换为可搜索的英文名称或 SMILES</li>
+                <li>AI 会优先使用英文分子名搜索，避免错误 SMILES 导致查询失败</li>
                 <li>配置只保存在当前浏览器，不会提交到代码仓库</li>
               </ul>
             </div>
