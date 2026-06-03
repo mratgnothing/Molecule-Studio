@@ -25,11 +25,24 @@ function App() {
       .replace('No compound found for:', '未找到对应化合物：')
       .replace('Failed to search compound:', '搜索化合物失败：')
       .replace('Failed to get 3D structure:', '获取 3D 结构失败：')
+      .replace('Failed to parse compound structure:', '解析分子结构失败：')
+      .replace('No atoms found in PubChem structure record', 'PubChem 结构记录中没有可用原子数据')
       .replace('Could not find compound CID', '未找到化合物 CID')
       .replace('LLM API not configured', '尚未配置大模型服务')
       .replace('LLM API key not configured', '尚未配置大模型服务')
       .replace('Failed to parse query', '解析查询失败')
       .replace('An error occurred', '发生错误');
+  };
+
+  const getBestSearchQuery = (parsedResult, fallbackQuery) => {
+    // PubChem is most reliable with SMILES, then English names.
+    // Formula search may return many isomers, so keep it after the name unless no name is available.
+    return (
+      parsedResult?.smiles ||
+      parsedResult?.moleculeName ||
+      parsedResult?.formula ||
+      fallbackQuery
+    );
   };
 
   const handleSearch = useCallback(async (query, inputMode = 'standard') => {
@@ -45,7 +58,7 @@ function App() {
         if (!parseResult.success) {
           throw new Error(parseResult.error || '自然语言查询解析失败');
         }
-        searchQuery = parseResult.moleculeName || parseResult.smiles || query;
+        searchQuery = getBestSearchQuery(parseResult, query);
       }
 
       const result = await smartSearch(searchQuery);
@@ -64,7 +77,7 @@ function App() {
   }, []);
 
   const handleNLPParsed = useCallback((parsedResult) => {
-    const searchQuery = parsedResult.moleculeName || parsedResult.smiles;
+    const searchQuery = getBestSearchQuery(parsedResult, '');
     if (searchQuery) {
       handleSearch(searchQuery, 'standard');
     }
@@ -122,7 +135,7 @@ function App() {
                       <div className="text-6xl mb-4">🔍</div>
                       <p className="text-gray-600 font-semibold">搜索一个分子，开始 3D 可视化</p>
                       <p className="text-gray-500 text-sm mt-2">
-                        示例：阿莫西林、咖啡因、H2O，也可以使用自然语言描述
+                        示例：Amoxicillin、Caffeine、H2O，也可以使用自然语言描述
                       </p>
                     </div>
                   </div>
@@ -146,7 +159,8 @@ function App() {
             <div>
               <h3 className="font-semibold text-gray-700 mb-2">标准搜索</h3>
               <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
-                <li>输入化学名称，例如 Amoxicillin、Caffeine、Aspirin</li>
+                <li>输入英文化学名称，例如 Amoxicillin、Caffeine、Aspirin</li>
+                <li>输入常见中文名，例如 阿莫西林、咖啡因、阿司匹林</li>
                 <li>输入分子式，例如 C16H19N3O5S、H2O</li>
                 <li>高级用户可以直接输入 SMILES 字符串</li>
                 <li>点击“可视化”生成 3D 分子模型</li>
@@ -157,7 +171,7 @@ function App() {
               <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
                 <li>先在“AI 配置”中填写自己的 API Key，并选择模型</li>
                 <li>用自然语言描述分子，例如“显示水分子”</li>
-                <li>AI 会把描述转换为可搜索的化学标识</li>
+                <li>AI 会把描述转换为可搜索的英文名称或 SMILES</li>
                 <li>配置只保存在当前浏览器，不会提交到代码仓库</li>
               </ul>
             </div>
