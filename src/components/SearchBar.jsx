@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { isLLMConfigured } from '../utils/nlpParser';
 
 /**
@@ -8,7 +8,19 @@ import { isLLMConfigured } from '../utils/nlpParser';
 const SearchBar = ({ onSearch, isLoading }) => {
   const [query, setQuery] = useState('');
   const [inputMode, setInputMode] = useState('standard');
-  const hasLLM = isLLMConfigured();
+  const [hasLLM, setHasLLM] = useState(isLLMConfigured());
+
+  useEffect(() => {
+    const refreshConfigState = () => {
+      setHasLLM(isLLMConfigured());
+      if (!isLLMConfigured()) {
+        setInputMode('standard');
+      }
+    };
+
+    window.addEventListener('ai-config-updated', refreshConfigState);
+    return () => window.removeEventListener('ai-config-updated', refreshConfigState);
+  }, []);
 
   const handleSearch = () => {
     if (query.trim()) {
@@ -26,8 +38,8 @@ const SearchBar = ({ onSearch, isLoading }) => {
   return (
     <div className="w-full bg-white rounded-lg shadow-md p-6 mb-6">
       <div className="flex flex-col gap-4">
-        {hasLLM && (
-          <div className="flex gap-2">
+        {hasLLM ? (
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setInputMode('standard')}
               className={`px-4 py-2 rounded-md font-medium transition-colors ${
@@ -48,6 +60,10 @@ const SearchBar = ({ onSearch, isLoading }) => {
             >
               自然语言
             </button>
+          </div>
+        ) : (
+          <div className="rounded-md bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800">
+            如需使用自然语言搜索，请先在下方“AI 配置”中填写自己的 API Key 并选择模型。
           </div>
         )}
 
